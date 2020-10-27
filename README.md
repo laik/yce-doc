@@ -39,6 +39,7 @@
 ## 3. 云原生下的运维管理(管理工具)
 
 ### 背景
+
 通常我们一般在开发环境或者测试环境，遇到应用的网络不通，内存泄露，cpu飙升等，需要调试k8s里面的pod的业务容器，并且容器技术的一个最佳实践是构建尽可能精简的容器镜像。但这一实践却会给排查问题带来麻烦：精简后的容器中普遍缺失常用的排障工具，每次进去都需要（apt-get）去下载一些工具，给我们带来了极大的不便利性，甚至把基础镜像打的很大,导致在镜像不好传输等，为了让用户更方便的调试又精简容器的大小，我们需要在容器云推出一个很好的调试工具。
 
 ### 提出问题
@@ -49,15 +50,66 @@
 
 在我们容器云平台里面，我们支持web-shell的功能,点击pod的时候，通过web-shell的方式进入容器里面,让用户针对它自己的业务容器排错，本身原理是非常简单的，如果理解了原理那么就能知道它是如何实现和如何使用的。
 
-在讲这个运维工具之前，我们需要了解一下docker的基本原理，k8s是站在docker之上的，本质运行的还是docker，docker的本质是基于namespace隔离和cgroup资源限制，倘若，我们启动一个进程加入目标容器的namespace中，这样子
+在讲这个运维工具之前，我们需要了解一下docker的基本原理，k8s是站在docker之上的，本质运行的还是docker，docker的本质是基于namespace隔离和cgroup资源限制，倘若，我们启动一个进程加入目标容器的namespace中，这样子就和目标容器共享namespace了，那么共享了namespace会怎么样呢？就能看到了目标容器的进程，网络，挂在的目录等。
 
+如果进入了目标容器又能和它共享namespace的同时我们带入一些调试工具，比如网络的排查的image（netshuoot),当目标容器出现了网络的问题，那么就可以针对这个image进去调试网络故障的问题，因为这个工具几乎包含了所有的网络故障排查工具。那么在k8s里面我们是怎么做的呢？
 
+详细的实现流程如下：
+- 提前在所有的node安装一个Daemonset，其职责负责attach到目标容器的namespace，并且和后台简历SPDY连接
+- 查询目标Pod在哪个节点上
+- 找到所在的节点的Pod的节点，并且找到改pod的容器，发送指令给Daemonset的程序，并且attach到目标容器里面
+- 用户排查问题
+
+知道了原理和对应的流程之后，就很很容易的使用我们compass容器云来进行排查问题了，在我们的容器云里面找到你要调试的pod，点击当前的Pod，然后进行选择对应的容器进行debug操作,容器云的前端采用[socketjs](https://github.com/sockjs/sockjs-client)和微软的[xterm](https://github.com/xtermjs/xterm.js/)来进行整体的交互，`socketjs`用来
+管理底层的websocket连接，而`xterm`用在web上的终端,在容器云上很方便用户的操作。
+
+![image](./img/debug-show.png)
+> 右上角有个齿轮的东西点击就可以进入调试
+
+![image](img/terminal.png)
+> 可以看到，当我们attach到容器里面的，执行了netstat命令，由于一些极简的镜像什么东西都没有的
+
+![image](img/performance.png)
+
+[netshoot](https://github.com/nicolaka/netshoot)包含了如上的工具，这样子我们想调试目标容器都是这么轻而易举的。
+
+为了制造一些方便开发使用的运维工具的时候，我们又要考虑到业务容器的镜像的极简性(足够小)，于此同时萌发了我们的思考，所以才造就我们开发了这个调试工具,后面，我们需要接入更多的业务团队，由于我们公司的多语言技术栈，比如java,php,golang，python,不同的语言栈，会出现不同的工具，后续，我们针对不同的语言做不同的工具集，方便业务团队使用，比如java应用的内存泄露，cpu飙升，我们会在基础的image装载一些类似[alibab-arthas](https://github.com/alibaba/arthas)等，每个image只做一件事情的原则。
 
 
 
 ### 其他(延伸点)
 
-...
+用Daemonset的这种方式有点不太优雅，还有优雅的方式当然是 kubernetes的[临时容器](https://kubernetes.io/zh/docs/concepts/workloads/pods/ephemeral-containers/)的方案，但是此方案还是alpha版本，处于比较多bug阶段。这里我讲讲它是怎么比较优雅呢？
+
+详细的原理如下：
+
+- 临时容器其实在原生的Pod扩展了临时容器
+- 临时容器是一份是一份CRD(CustomResourceDefinition),用户自定定于
+
+  ```text
+  {
+    "apiVersion": "v1",
+    "kind": "EphemeralContainers",
+    "metadata": {
+            "name": "nginx-6db489d4b7-tvgsm"
+    },
+    "ephemeralContainers": [{
+        "command": [
+            "sh"
+        ],
+        "image": "busybox:latest",
+        "imagePullPolicy": "IfNotPresent",
+        "name": "debugger",
+        "stdin": true,
+        "tty": true,
+        "terminationMessagePolicy": "File"
+    }]
+  }
+  ```
+- 在原生的Pod字段加入这份JSON，那么原生的Pod就具备了一个调试功能，因为相同的Pod之间的容器本质也是类似我们前面说到共享namespace的，所以我们可以直接attch到这个容器里面做做我们想做的调试功能，只是把相关的image替换成我们各种工具的image。
+
+最后但同样重要的是这是google的开发者推从的方案，也是kubernetes后面发展的趋势，所以我们应该跟随者kubernetes的发展，而不是独立出自称一个派系。
+
 
 ## 4. 服务网格的实践
 
