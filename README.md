@@ -76,6 +76,7 @@
 为了制造一些方便开发使用的运维工具的时候，我们又要考虑到业务容器的镜像的极简性(足够小)，于此同时萌发了我们的思考，所以才造就我们开发了这个调试工具,后面，我们需要接入更多的业务团队，由于我们公司的多语言技术栈，比如java,php,golang，python,不同的语言栈，会出现不同的工具，后续，我们针对不同的语言做不同的工具集，方便业务团队使用，比如java应用的内存泄露，cpu飙升，我们会在基础的image装载一些类似[alibab-arthas](https://github.com/alibaba/arthas)等，每个image只做一件事情的原则。
 
 
+
 ### 其他(延伸点)
 
 用Daemonset的这种方式有点不太优雅，还有优雅的方式当然是 kubernetes的[临时容器](https://kubernetes.io/zh/docs/concepts/workloads/pods/ephemeral-containers/)的方案，但是此方案还是alpha版本，处于比较多bug阶段。这里我讲讲它是怎么比较优雅呢？
@@ -105,9 +106,9 @@
     }]
   }
   ```
-- 在原声的Pod字段加入这份JSON，那么原生的Pod就具备了一个调试功能，因为相同的Pod之间的容器本质也是类似我们前面说到共享namespace的，所以我们可以直接attch到这个容器里面做做我们想做的调试功能，只是把相关的image替换成我们各种工具的image。
+- 在原生的Pod字段加入这份JSON，那么原生的Pod就具备了一个调试功能，因为相同的Pod之间的容器本质也是类似我们前面说到共享namespace的，所以我们可以直接attch到这个容器里面做做我们想做的调试功能，只是把相关的image替换成我们各种工具的image。
 
-最后但同样重要的是这是google的人员再推，也是kubernetes后面发展的趋势，所以我们应该跟随者kubernetes的发展。
+最后但同样重要的是这是google的开发者推从的方案，也是kubernetes后面发展的趋势，所以我们应该跟随者kubernetes的发展，而不是独立出自称一个派系。
 
 
 ## 4. 服务网格的实践
