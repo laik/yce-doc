@@ -6,13 +6,86 @@
 ## 1. Tekton 流水线的持续交付
 
 ### 背景
+
 我们通常的开发流程是在本地开发完成应用之后，使用git或svn作为版本管理工具，将本地代码提交到类似版本管理仓库中做源代码持久化存储; 然而来自多个仓库涉及到多个中间件作为底层依赖一起部署到生产环境中时，大部份公司内部通常会有持继集成流程; 早期使用Jenkins工具链完成当下持续集成的工作流程,解决上层devops流程中的必要环节,但使用jenkins由master-slave的架构加之使用jvm运行及其内部使用DSL(groovy)拓展,对于服务器资源使用率,拓展性都不太理想;
 
 ### 提出问题
+
 那么如何解决可以快速拓展及拥有强大调度能力框架及架构可以支持千量级并发持续集成的方案? 答案是肯定的，而且不乏竞争者，业内知名的有knavtieBuild/Jenkins/JenkinsX/Spinnaker/ArgoCD/Tekton，其中tekon凭借其众多优良特性在一众竞争者中胜出，成为领域内的事实标准, 我们公司在实践云原生的道路上的第一站,基于Tekton框架的高阶实现;
 
 ### 如何解决
-...
+
+有这么多的构建工具，我们为什么会选择它呢？
+
+Tekton是Kubernetes原生的应用发布框架，主要用来构建 CI/CD 系统。它原本是 knative 项目里面一个叫做 build-pipeline 的子项目，用来作为 knative-build 的下一代引擎。然而，随着 k8s 社区里各种各样的需求涌入，这个子项目慢慢成长为一个通用的框架，能够提供灵活强大的能力去做基于 Kubernetes 的构建发布。
+
+| x | jenkins-x | Spinnaker | Argo | Tekton |
+| :-----| :-----| ----: | :----: | :----: |
+| 云原声 | ✔︎ | x | ✔ | ✔︎ |
+| 灵活的扩展 | x | x | x | ✔︎ |
+| 轻量化 | x | x | ✔ | ✔︎ |
+
+针对上面的表格详细叙述一下Tekton的优势:
+
+- 标准化 CI/CD 工具
+  - Tekton 是一个强大且灵活的 Kubernetes 原生开源框架，可用于创建持续集成和交付 (CI/CD) 系统。该框架可让您跨多个云服务商或本地系统进行构建、测试和部署，而无需操心基础实现详情。
+- 针对 Kubernetes 的内置最佳做法
+  - Tekton 提供开源组件来帮助您标准化 CI/CD 工具和适用于不同供应商、语言和部署环境的流程。Tekton 提供的流水线、版本、工作流和其他 CI/CD 组件所遵循的行业规范可很好地适用于 Jenkins、Jenkins X、Skaffold、Knative 和其他现有的 CI/CD 工具。
+
+- 在混合环境或多云端环境运行
+  - Tekton 可让您跨多个环境（例如虚拟机、无服务器、Kubernetes 或 Firebase）进行构建、测试和部署。您还可以使用 Tekton 流水线跨多个云服务商或混合环境进行部署。
+
+- 获得极大的灵活性
+  - Tekton 可赋予您充分的灵活性，让您可以使用您喜欢的 CI/CD 工具创建强大的流水线。Tekton 让您无需操心基础实现，只需根据团队的要求选择构建、测试和部署工作流即可。
+
+
+正是因为tekton的令扩可扩展性,我们基于tekton实现了我们的容器云，以tekton作为我们CI的数据平面，容器云作为我们的控制平面，我们设计了以下的主要模块。
+- pipeline模块
+- pipelinerun模块
+- webhook模块
+- 构建模板商店模块
+
+pipeline的模块，我们的为了让用户的更简单的操作，我们以`low-code`的方式去实现,更贴切用户的操作下的习惯，用户可以在Tekton的下面的pipeline动手画自己的pipeline，每个pipeline由N个Task组成，形成一个DAG。这里说的到的pipeline和task的概念都是来自tekton。task和pipeline都属于Kubernetes的自定义资源。正因为Kubernetes是声明式的，所以你可以自由的编排你的task和pipeline。
+
+#### pipeline模块
+![image](./img/tekton/pipeline.png)
+可以看到上图的pipeline的dailog,用户可以动态增加task和删除task，这种操作就是所谓的`low-code`
+
+![image](./img/tekton/task.png)
+当我们点击节点(task)的时候，这个时候我们就需要针对这个task去编辑，这个task的意思就是，你要这个task(任务)做什么事情，比如上图的task，就是简单的打印一下`test`，当我们编辑完所有的task的时候，我们保存好这个pipeline，然后跑一个pipelinerun实例出来。
+
+
+#### pipelinerun模块
+![image](./img/tekton/pipeline-run.png)
+这里就是我们把每个pipeline跑出来的实例，每条pipeline-run都可以看到所在的租户下面的pipelinerun，有多少个任务，创建的时间是什么时候，执行的耗时是多少，状态是什么？
+
+![image](./img/tekton/pipeline-dialog.png)
+点击pipeline的名称的时候，弹出一个dialog，这里可以显示每个task的一些状态，比如这个task是成功的还是失败的，时间是多长，叫什么名字。
+
+
+![image](./img/tekton/task-log.png)
+当我们点击task的时候，就是可以看到其的构建日志，也就是刚才我们的打印一个`test`.
+
+
+#### 构建模板商店模块
+
+![image](./img/tekton/store.png)
+
+上图就是我们的构建模板商店模块，构建模板商店模块的作用就是每个用户都可以上传它定义的资源，比如task和pipeline等，这些模版都是可以复用的，想用的用户就可以在里面下载。
+
+
+#### webhook模块
+
+![image](./img/tekton/webhook.png)
+
+以上就是我们的webhook模块，它的作用就是配合github/gitea/gitlab的webhook操作，当一个pr或者mr提交的时候，通过webhook出发ci的构建，实现动态化，取代手动创建pipeline的创建。
+
+
+最后，这就是我们目前的实现的版本，要实现更加的自动化，比如chatOps,GitOps等，真是任重而道远，CI这块还有很长的道路要走，我们需要更加的方便用户的操作，以用户的操作方便性为中心，省时省力，去构建我们的CI/CD.
+
+
+
+
 
 ### 其他(延伸点)
 ...
